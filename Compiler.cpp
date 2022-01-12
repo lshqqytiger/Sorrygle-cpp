@@ -310,11 +310,8 @@ int main(int argc, char** argv) {
 			midiFile.addNoteOn(0, startTick, channel, key, volume);
 			if (recordingGroup != -1) {
 				MidiPart part;
-				cout << "part defined";
 				part.init(1, startTick, key);
-				cout << "part set";
 				groups.at(recordingGroup).push_back(part);
-				cout << "part inserted";
 				
 			}
 			if (isBlock) blockNowPitch = blockDefPitch;
