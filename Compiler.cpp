@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
 	midiFile.write("output.mid");
 
 	end = clock();
-	std::cout << "Completed " + to_string((double)(end - start)) + "ms.";
+	std::cout << "\nCompleted " + to_string((double)(end - start)) + "ms.";
 
 	return 0;
 }
