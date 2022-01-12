@@ -1,10 +1,24 @@
 #include "MidiFile.h"
 #include "Options.h"
 #include <iostream>
+#include <vector>
 #include <time.h>
 
 using namespace std;
 using namespace smf;
+
+class MidiPart {
+public:
+	void init(int _type, int _tick, int _key);
+	int type;
+	int tick;
+	int key;
+};
+void MidiPart::init(int _type, int _tick, int _key) {
+	type = _type;
+	tick = _tick;
+	key = _key;
+}
 
 int getChannel(std::ifstream& srgFile, char c) {
 	std::string channel("0");
@@ -57,6 +71,19 @@ int getKey(char note) {
 	return -1;
 }
 
+void loadGroup(MidiFile midiFile, vector<MidiPart> group, int channel, int volume) {
+	for (auto i:group) {
+		switch (i.type) {
+		case 0: // off
+			midiFile.addNoteOff(0, i.tick, channel, i.key);
+			break;
+		case 1: // on
+			midiFile.addNoteOn(0, i.tick, channel, i.key, volume);
+			break;
+		}
+	}
+}
+
 int main(int argc, char** argv) {
 	if (argc < 2) {
 		std::cout << "Missing argument.";
@@ -70,20 +97,25 @@ int main(int argc, char** argv) {
 	srgFile.open(argv[1]);
 
 	MidiFile midiFile;
+	vector<vector<MidiPart>> groups;
 	int channel = 0;
 	int instrument = 0;
 	int defPitch = 5;
 	int nowPitch = 5;
-	int groupDefPitch = 5;
-	int groupNowPitch = 5;
+	int blockDefPitch = 5;
+	int blockNowPitch = 5;
+	int volume = 100;
+	int modulation = 0;
 	int startTick = 0;
 	int endTick = 0;
 	int key = 36;
 	int tpq = midiFile.getTPQ(); // Ticks per Quarter Note
 	int noteTick = tpq / 4;
+	int recordingGroup = -1;
 	bool isNoteOn = false;
 	bool isCheckingOptions = false;
-	bool isGroup = false;
+	bool isBlock = false;
+	bool isChord = false;
 
 	while (!srgFile.eof()) {
 		srgFile.get(c);
@@ -95,13 +127,19 @@ int main(int argc, char** argv) {
 			instrument = 0;
 			defPitch = 5;
 			nowPitch = 5;
-			groupDefPitch = 5;
-			groupNowPitch = 5;
+			blockDefPitch = 5;
+			blockNowPitch = 5;
+			volume = 100;
+			modulation = 0;
 			startTick = 0;
 			endTick = 0;
 			key = 36;
 			noteTick = tpq / 4;
+			recordingGroup = -1;
+			isNoteOn = false;
 			isCheckingOptions = true;
+			isBlock = false;
+			isChord = false;
 			std::cout << "Channel " + to_string(channel) + " initialized\n";
 			break;
 
@@ -115,25 +153,39 @@ int main(int argc, char** argv) {
 			std::cout << "Default note tick: " + to_string(noteTick) + "\n";
 			break;
 		case 0x6f: // default octave - o
-			nowPitch = defPitch = groupNowPitch = groupDefPitch = getOption(srgFile, c) + 1;
+			nowPitch = defPitch = blockNowPitch = blockDefPitch = getOption(srgFile, c) + 1;
 			std::cout << "Default pitch: " + to_string(defPitch) + "\n";
+			break;
+		case 0x74: // modulation - t
+			modulation = getOption(srgFile, c);
+			std::cout << "Modulation: " + to_string(modulation) + "\n";
 			break;
 
 			// Modify Pitch
-		case 0x76: // down - v
+		case 0x76: // set volume or pitch down - v
 			if (isCheckingOptions) {
-				isCheckingOptions = false;
-				midiFile.addTimbre(0, 0, channel, instrument);
+				streampos pos = srgFile.tellg();
+				char identifier;
+				srgFile.get(identifier);
+				if (identifier == '=') {
+					volume = getOption(srgFile, c);
+					break;
+				}
+				else {
+					isCheckingOptions = false;
+					srgFile.seekg(pos);
+					midiFile.addTimbre(0, 0, channel, instrument);
+				}
 			}
-			(isGroup ? groupNowPitch : nowPitch)--;
+			(isBlock ? blockNowPitch : nowPitch)--;
 			std::cout << "Pitch set: " + to_string(nowPitch) + "\n";
 			break;
-		case 0x5e: // up - ^
+		case 0x5e: // pitch up - ^
 			if (isCheckingOptions) {
 				isCheckingOptions = false;
 				midiFile.addTimbre(0, 0, channel, instrument);
 			}
-			(isGroup ? groupNowPitch : nowPitch)++;
+			(isBlock ? blockNowPitch : nowPitch)++;
 			std::cout << "Pitch set: " + to_string(nowPitch) + "\n";
 			break;
 
@@ -155,24 +207,56 @@ int main(int argc, char** argv) {
 			}
 			switch (blockIdentifier) {
 			case 0x5e:
-				groupNowPitch = ++groupDefPitch;
-				std::cout << "Pitch set (GROUP): " + to_string(groupNowPitch) + "\n";
+				blockNowPitch = ++blockDefPitch;
+				std::cout << "Pitch set (Block): " + to_string(blockNowPitch) + "\n";
 				break;
 			case 0x76:
-				groupNowPitch = --groupDefPitch;
-				std::cout << "Pitch set (GROUP): " + to_string(groupNowPitch) + "\n";
+				blockNowPitch = --blockDefPitch;
+				std::cout << "Pitch set (Block): " + to_string(blockNowPitch) + "\n";
 				break;
 			default:
-				std::cout << "Error! Unsupported group identifier.";
+				std::cout << "Error! Unsupported block identifier.";
 				exit(0);
 			}
 			srgFile.seekg(pos2);
-			isGroup = true;
+			isBlock = true;
 			break;
 		}
 		case 0x29: // close - )
-			isGroup = false;
-			groupDefPitch = defPitch;
+			isBlock = false;
+			blockDefPitch = defPitch;
+			break;
+
+		// Group
+		case 0x7b: // open - {
+			char id;
+			srgFile.get(id);
+			if (id == '=') { // load recorded group
+				char groupId;
+				srgFile.get(groupId);
+				cout << "Load Group: " + to_string(groupId - '0') + "\n";
+				midiFile.addTimbre(0, 0, channel, instrument);
+				loadGroup(midiFile, groups.at(groupId - '0'), channel, volume);
+			}
+			else { // start recording group
+				vector<MidiPart> group;
+				groups.push_back(group);
+				recordingGroup = id - '0';
+				cout << "Record Group: " + to_string(recordingGroup) + "\n";
+			}
+			break;
+		case 0x7d: // close - }
+			recordingGroup = -1;
+			break;
+
+		//Chord
+		case 0x5b: // open - [
+			isChord = true;
+			break;
+		case 0x5d: // close - ]
+			isChord = false;
+			endTick = startTick + noteTick;
+			startTick = endTick;
 			break;
 
 			// Note or Break
@@ -185,10 +269,23 @@ int main(int argc, char** argv) {
 				isNoteOn = false;
 				std::cout << " ~ " + to_string(endTick) + "\n";
 				midiFile.addNoteOff(0, endTick, channel, key);
+				if (recordingGroup != -1) {
+					MidiPart part;
+					part.init(0, endTick, key);
+					groups.at(recordingGroup).push_back(part);
+				}
 			}
 			endTick += noteTick;
 			midiFile.addNoteOn(0, startTick, channel, key, 0);
 			midiFile.addNoteOff(0, endTick, channel, key);
+			if (recordingGroup != -1) {
+				MidiPart onPart;
+				MidiPart offPart;
+				onPart.init(1, startTick, key);
+				offPart.init(0, endTick, key);
+				groups.at(recordingGroup).push_back(onPart);
+				groups.at(recordingGroup).push_back(offPart);
+			}
 			startTick = endTick;
 			std::cout << "Break\n";
 			break;
@@ -198,19 +295,33 @@ int main(int argc, char** argv) {
 				isCheckingOptions = false;
 				midiFile.addTimbre(0, 0, channel, instrument);
 			}
-			if (isNoteOn) {
+			if (isNoteOn && !isChord) {
 				std::cout << " ~ " + to_string(endTick) + "\n";
 				midiFile.addNoteOff(0, endTick, channel, key);
+				if (recordingGroup != -1) {
+					MidiPart part;
+					part.init(0, endTick, key);
+					groups.at(recordingGroup).push_back(part);
+				}
 			}
-			endTick = startTick + noteTick;
-			key = (isGroup ? groupNowPitch : nowPitch) * 12 + getKey(c);
+			if(!isChord) endTick = startTick + noteTick;
+			key = (isBlock ? blockNowPitch : nowPitch) * 12 + getKey(c) + modulation;
 			isNoteOn = true;
-			midiFile.addNoteOn(0, startTick, channel, key, 100);
-			if (isGroup) groupNowPitch = groupDefPitch;
+			midiFile.addNoteOn(0, startTick, channel, key, volume);
+			if (recordingGroup != -1) {
+				MidiPart part;
+				cout << "part defined";
+				part.init(1, startTick, key);
+				cout << "part set";
+				groups.at(recordingGroup).push_back(part);
+				cout << "part inserted";
+				
+			}
+			if (isBlock) blockNowPitch = blockDefPitch;
 			else nowPitch = defPitch;
 			std::cout << "Note Added: " + to_string(key) + "\n";
 			std::cout << "	Tick: " + to_string(startTick);
-			startTick = endTick;
+			if(!isChord) startTick = endTick;
 		}
 	}
 	midiFile.sortTracks();
