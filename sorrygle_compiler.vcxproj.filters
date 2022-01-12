@@ -33,9 +33,6 @@
     <ClCompile Include="MidiMessage.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="Options.cpp">
-      <Filter>소스 파일</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Binasc.h">
@@ -51,9 +48,6 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="MidiMessage.h">
-      <Filter>헤더 파일</Filter>
-    </ClInclude>
-    <ClInclude Include="Options.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>
