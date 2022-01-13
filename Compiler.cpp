@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
 	int track = 0;
 	int trackCount = 0;
 	int channel = 0;
-	vector<int> channels(20);
+	vector<int> channels;
 	int instrument = 0;
 	int defPitch = 5;
 	int nowPitch = 5;
@@ -113,8 +113,6 @@ int main(int argc, char** argv) {
 	bool isBlock = false;
 	bool isChord = false;
 	bool isComment = false;
-
-	std::fill(channels.begin(), channels.end(), -1);
 
 	while (!srgFile.eof()) {
 		srgFile.get(c);
