@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
 	bool isComment = false;
 	bool isSforzando = false;
 	bool isStaccato = false;
-	bool isCheckingGlobals = true;
+	bool isAppoggiatura = false;
 
 	while (!srgFile.eof()) {
 		srgFile.get(c);
@@ -174,12 +174,12 @@ int main(int argc, char** argv) {
 			repetitionCount = -1;
 			isNoteOn = false;
 			isCheckingOptions = true;
-			isCheckingGlobals = false;
 			isBlock = false;
 			isChord = false;
 			isComment = false;
 			isSforzando = false;
 			isStaccato = false;
+			isAppoggiatura = false;
 			for (auto i : channels) {
 				if (i == channel) {
 					track++;
@@ -270,7 +270,17 @@ int main(int argc, char** argv) {
 				std::cout << "Pitch set (Block): " + to_string(blockNowPitch) + "\n";
 				break;
 			case 0x28: // Global Option set
-				srgFile.seekg(pos2);
+				if (optionIdentifier == 'b') {
+					srgFile.get(c);
+					if (c == 'p') {
+						srgFile.get(c);
+						if (c == 'm') {
+							bpm = getOption(srgFile, c);
+							midiFile.addTempo(track, 0, bpm);
+							std::cout << "BPM: " << bpm << std::endl;
+						}
+					}
+				}
 				continue;
 			default:
 				std::cout << "Error! Unsupported block identifier.";
@@ -296,7 +306,7 @@ int main(int argc, char** argv) {
 					groupId += id;
 					srgFile.get(id);
 				}
-				cout << "Load Group: " + groupId + "\n";
+				std::cout << "Load Group: " + groupId + "\n";
 				if (isCheckingOptions) {
 					isCheckingOptions = false;
 					midiFile.addTimbre(track, 0, channel, instrument);
@@ -332,7 +342,7 @@ int main(int argc, char** argv) {
 					isCheckingOptions = false;
 					midiFile.addTimbre(track, 0, channel, instrument);
 				}
-				cout << "Record Group: " + to_string(recordingGroup) + "\n";
+				std::cout << "Record Group: " + to_string(recordingGroup) + "\n";
 			}
 			break;
 		case 0x7d: // close - }
@@ -347,10 +357,15 @@ int main(int argc, char** argv) {
 			break;
 
 			// Chord
-		case 0x5b: // open - [
+		case 0x5b: { // open - [
+			streampos pos = srgFile.tellg();
+			srgFile.get(c);
+			if (c == '>') isAppoggiatura = true; // Appoggiatura - [>ga]
+			else srgFile.seekg(pos);
 			isChord = true;
 			chordKeys.clear();
 			break;
+		}
 		case 0x5d: { // close - ]
 			streampos pos = srgFile.tellg();
 			srgFile.get(c);
@@ -359,6 +374,7 @@ int main(int argc, char** argv) {
 			if (c == '~') break;
 			isChord = false;
 			isNoteOn = false;
+			isAppoggiatura = false;
 			endTick = startTick + (isStaccato ? noteTick / 2 : noteTick);
 			for (auto i : chordKeys) {
 				if (i != -1) midiFile.addNoteOff(track, endTick, channel, i);
@@ -483,17 +499,6 @@ int main(int argc, char** argv) {
 			startTick = endTick;
 			std::cout << "Break\n";
 			break;
-		case 0x62: // bpm
-			if (isCheckingGlobals) {
-				srgFile.get(c);
-				if (c == 'p') {
-					srgFile.get(c);
-					if (c == 'm') bpm = getOption(srgFile, c);
-					midiFile.addTempo(0, 0, bpm);
-					cout << "BPM: " << bpm << std::endl;
-				}
-				break;
-			}
 		default: // note
 			if (getKey(c) == -1) continue;
 			if (isCheckingOptions) {
@@ -509,7 +514,7 @@ int main(int argc, char** argv) {
 					groups.at(recordingGroup).push_back(part);
 				}
 			}
-			if(!isChord) endTick = startTick + (isStaccato ? noteTick / 2 : noteTick);
+			if(!isChord) endTick = isAppoggiatura ? (tpq / 2) : (startTick + (isStaccato ? noteTick / 2 : noteTick));
 			key = (isBlock ? blockNowPitch : nowPitch) * 12 + getKey(c) + modulation;
 			isNoteOn = true;
 			midiFile.addNoteOn(track, startTick, channel, key, isSforzando ? 100 : volume);
@@ -522,7 +527,7 @@ int main(int argc, char** argv) {
 			else nowPitch = defPitch;
 			std::cout << "Note Added: " + to_string(key) + "\n";
 			std::cout << "	Tick: " + to_string(startTick);
-			if (!isChord) startTick += noteTick;
+			if (!isChord) startTick += isAppoggiatura ? (tpq / 2) : noteTick;
 			else chordKeys.push_back(key);
 		}
 	}
