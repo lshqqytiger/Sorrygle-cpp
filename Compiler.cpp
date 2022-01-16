@@ -74,6 +74,13 @@ int getKey(char note) {
 	return -1;
 }
 
+bool is_number(const std::string& s)
+{
+	std::string::const_iterator it = s.begin();
+	while (it != s.end() && std::isdigit(*it)) ++it;
+	return !s.empty() && it == s.end();
+}
+
 int main(int argc, char** argv) {
 	if (argc < 2) {
 		std::cout << "Missing argument.";
@@ -109,6 +116,9 @@ int main(int argc, char** argv) {
 	int recordingGroup = -1;
 	int repetitionCount = -1;
 	int bpm = 120;
+	int dynamicsLength = 0;
+	int dynamicsDest = 0;
+	int dynamicsCount = 0;
 	vector<int> chordKeys;
 	bool isNoteOn = false;
 	bool isCheckingOptions = false;
@@ -118,6 +128,8 @@ int main(int argc, char** argv) {
 	bool isSforzando = false;
 	bool isStaccato = false;
 	bool isAppoggiatura = false;
+	bool isDynamics = false;
+	bool isTriplet = false;
 
 	while (!srgFile.eof()) {
 		srgFile.get(c);
@@ -172,6 +184,9 @@ int main(int argc, char** argv) {
 			noteTick = tpq / 4;
 			recordingGroup = -1;
 			repetitionCount = -1;
+			dynamicsLength = 0;
+			dynamicsDest = 0;
+			dynamicsCount = 0;
 			isNoteOn = false;
 			isCheckingOptions = true;
 			isBlock = false;
@@ -180,6 +195,8 @@ int main(int argc, char** argv) {
 			isSforzando = false;
 			isStaccato = false;
 			isAppoggiatura = false;
+			isDynamics = false;
+			isTriplet = false;
 			for (auto i : channels) {
 				if (i == channel) {
 					track++;
@@ -236,6 +253,17 @@ int main(int argc, char** argv) {
 					midiFile.addTimbre(track, 0, channel, instrument);
 				}
 			}
+			else {
+				srgFile.seekg(-2, ios::cur);
+				srgFile.get(c);
+				if (c == '(') {
+					srgFile.seekg(1, ios::cur);
+					volume = getOption(srgFile, c);
+					std::cout << "Volume: " + to_string(volume) + "\n";
+					break;
+				}
+				else srgFile.seekg(1, ios::cur);
+			}
 			(isBlock ? blockNowPitch : nowPitch)--;
 			std::cout << "Pitch set: " + to_string(nowPitch) + "\n";
 			break;
@@ -248,7 +276,7 @@ int main(int argc, char** argv) {
 			std::cout << "Pitch set: " + to_string(nowPitch) + "\n";
 			break;
 
-			// Block
+			// Block or Triplet
 		case 0x28: { // open - (
 			streampos pos1 = srgFile.tellg();
 			char blockIdentifier;
@@ -260,6 +288,7 @@ int main(int argc, char** argv) {
 				srgFile.seekg(pos1);
 				continue;
 			}
+			if (isTriplet) isTriplet = false;
 			switch (blockIdentifier) {
 			case 0x5e:
 				blockNowPitch = ++blockDefPitch;
@@ -268,6 +297,9 @@ int main(int argc, char** argv) {
 			case 0x76:
 				blockNowPitch = --blockDefPitch;
 				std::cout << "Pitch set (Block): " + to_string(blockNowPitch) + "\n";
+				break;
+			case 0x33: // Triplet - (3ceg)
+				isTriplet = true;
 				break;
 			case 0x28: // Global Option set
 				if (optionIdentifier == 'b') {
@@ -292,6 +324,7 @@ int main(int argc, char** argv) {
 		}
 		case 0x29: // close - )
 			isBlock = false;
+			isTriplet = false;
 			blockDefPitch = defPitch;
 			break;
 
@@ -306,7 +339,7 @@ int main(int argc, char** argv) {
 					groupId += id;
 					srgFile.get(id);
 				}
-				std::cout << "Load Group: " + groupId + "\n";
+				std::cout << std::endl << "Load Group: " << groupId << std::endl;
 				if (isCheckingOptions) {
 					isCheckingOptions = false;
 					midiFile.addTimbre(track, 0, channel, instrument);
@@ -336,13 +369,16 @@ int main(int argc, char** argv) {
 					srgFile.get(id);
 				}
 				recordingGroup = std::atoi(groupId.c_str());
-				groups[recordingGroup] = group;
-				pitchOfGroups[recordingGroup] = defPitch;
-				if (isCheckingOptions) {
-					isCheckingOptions = false;
-					midiFile.addTimbre(track, 0, channel, instrument);
+				if (groups[recordingGroup].size() == 0) {
+					groups[recordingGroup] = group;
+					pitchOfGroups[recordingGroup] = defPitch;
+					if (isCheckingOptions) {
+						isCheckingOptions = false;
+						midiFile.addTimbre(track, 0, channel, instrument);
+					}
+					std::cout << "Record Group: " + to_string(recordingGroup) + "\n";
 				}
-				std::cout << "Record Group: " + to_string(recordingGroup) + "\n";
+				else recordingGroup = -1;
 			}
 			break;
 		case 0x7d: // close - }
@@ -380,7 +416,7 @@ int main(int argc, char** argv) {
 				if (i != -1) midiFile.addNoteOff(track, endTick, channel, i);
 			}
 			endTick = (startTick += noteTick);
-			cout << " ~ " + to_string(endTick) + "\n";
+			std::cout << " ~ " + to_string(endTick) + "\n";
 			break;
 		}
 
@@ -390,7 +426,6 @@ int main(int argc, char** argv) {
 				streampos before = srgFile.tellg();
 				int extensionCount = 2;
 				while (c == '~' || c == ' ') {
-					cout << c;
 					before = srgFile.tellg();
 					srgFile.get(c);
 					if (c == '~') extensionCount++;
@@ -421,22 +456,27 @@ int main(int argc, char** argv) {
 			char identifier;
 			srgFile.get(identifier);
 			if (identifier == ':') repetition = srgFile.tellg();
+			std::cout << "Repetition start" << std::endl;
 			break;
 		}
 		case 0x3a: // end - :|
 			switch (repetitionCount) {
 			case -1:
-				char identifier;
-				char count;
-				srgFile.get(identifier);
-				if (identifier == '|') {
-					srgFile.get(count);
-					repetitionCount = count - '1';
+				srgFile.get(c);
+				if (c == '|') {
+					std::string count("0");
+					while (is_number(count)) {
+						srgFile.get(c);
+						if (c == '\n' || c == ' ') break;
+						count += c;
+					}
+					repetitionCount = (count == "0" ? 0 : std::atoi(count.c_str()) - 1);
 					srgFile.seekg(repetition);
 				}
 				break;
 			case 0:
 				repetitionCount = -1;
+				std::cout << "Repetition end" << std::endl;
 				break;
 			default:
 				repetitionCount--;
@@ -446,15 +486,34 @@ int main(int argc, char** argv) {
 
 		// Sforzando or Dynamics or Staccato
 		case 0x3c: {
-			std::regex noteRegex("[a-fA-F~]");
 			srgFile.get(c);
 			switch(c) {
 			case 0x2b: // crescendo - <+ceg80>
-				// TODO
+			case 0x2d: { // decrescendo - <-ceg40>
+				streampos pos = srgFile.tellg();
+				std::string temp("");
+				dynamicsLength = 0;
+				dynamicsDest = 0;
+				dynamicsCount = 0;
+				isDynamics = true;
+				srgFile.get(c);
+				while (c != '>') {
+					std::string _c(1, c);
+					if (getKey(c) != -1 || c == '~') dynamicsLength++;
+					srgFile.get(c);
+				}
+				srgFile.seekg(-3, ios::cur);
+				for (int i = 0; i < 3; i++) {
+					srgFile.get(c);
+					if (c == '>') break;
+					temp += c;
+				}
+				if (temp == "00") dynamicsDest = 100;
+				else dynamicsDest = std::atoi(temp.c_str());
+				srgFile.seekg(pos);
+				std::cout << "Dynamics start. Length: " << dynamicsLength << " Dest: " << dynamicsDest << std::endl;
 				break;
-			case 0x2d: // decrescendo - <-ceg40>
-				// TODO
-				break;
+			}
 			case 0x21: // sforzando - <!c>
 				isSforzando = true;
 				break;
@@ -464,6 +523,7 @@ int main(int argc, char** argv) {
 			case 0x3e: // close - >
 				isSforzando = false;
 				isStaccato = false;
+				isDynamics = false;
 				break;
 			}
 			break;
@@ -500,35 +560,53 @@ int main(int argc, char** argv) {
 			std::cout << "Break\n";
 			break;
 		default: // note
-			if (getKey(c) == -1) continue;
+			if (getKey(c) == -1) break;
 			if (isCheckingOptions) {
 				isCheckingOptions = false;
 				midiFile.addTimbre(track, 0, channel, instrument);
 			}
-			if (isNoteOn && !isChord) {
-				std::cout << " ~ " + to_string(endTick) + "\n";
-				midiFile.addNoteOff(track, endTick, channel, key);
-				if (recordingGroup != -1) {
-					MidiPart part;
-					part.init(0, endTick, key, NULL);
-					groups.at(recordingGroup).push_back(part);
+			if (!isChord) {
+				if (isNoteOn) {
+					std::cout << " ~ " + to_string(endTick) + "\n";
+					midiFile.addNoteOff(track, endTick, channel, key);
+					if (recordingGroup != -1) {
+						MidiPart part;
+						part.init(0, endTick, key, NULL);
+						groups.at(recordingGroup).push_back(part);
+					}
 				}
+				endTick = startTick;
+				if (isAppoggiatura) endTick += tpq / 2;
+				else if (isStaccato) endTick += noteTick / 2;
+				else if (isTriplet) endTick += noteTick * 2 / 3;
+				else endTick += noteTick;
 			}
-			if(!isChord) endTick = isAppoggiatura ? (tpq / 2) : (startTick + (isStaccato ? noteTick / 2 : noteTick));
 			key = (isBlock ? blockNowPitch : nowPitch) * 12 + getKey(c) + modulation;
 			isNoteOn = true;
-			midiFile.addNoteOn(track, startTick, channel, key, isSforzando ? 100 : volume);
+			int noteVolume = volume;
+			if (isSforzando) noteVolume = 100;
+			if (isDynamics) {
+				if (dynamicsDest > volume) noteVolume += dynamicsDest - (dynamicsLength - dynamicsCount) * volume;
+				else noteVolume -= dynamicsCount * (volume - dynamicsDest) / (dynamicsLength - 1);
+				dynamicsCount++;
+				if (dynamicsCount == dynamicsLength) isDynamics = false;
+			}
+			midiFile.addNoteOn(track, startTick, channel, key, noteVolume);
 			if (recordingGroup != -1) {
 				MidiPart part;
-				part.init(1, startTick, key, volume);
+				part.init(1, startTick, key, noteVolume);
 				groups.at(recordingGroup).push_back(part);
 			}
 			if (isBlock) blockNowPitch = blockDefPitch;
 			else nowPitch = defPitch;
 			std::cout << "Note Added: " + to_string(key) + "\n";
 			std::cout << "	Tick: " + to_string(startTick);
-			if (!isChord) startTick += isAppoggiatura ? (tpq / 2) : noteTick;
-			else chordKeys.push_back(key);
+			if (isChord) chordKeys.push_back(key);
+			else {
+				if (isAppoggiatura) startTick += tpq / 2;
+				else if (isTriplet) startTick += noteTick * 2 / 3;
+				else startTick += noteTick;
+			}
 		}
 	}
 	midiFile.sortTracks();

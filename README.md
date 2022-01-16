@@ -43,7 +43,7 @@ sorrygle_compiler.exe filename.srg
 | `vc`               | Octave down                  | ⭕  |
 | `(^ceg)`           | Ranged octave up             | ⭕  |
 | `(vceg)`           | Ranged octave down           | ⭕  |
-| `(3ceg)`           | Triplet                      | ❌  |
+| `(3ceg)`           | Triplet                      | ⭕  |
 | `(5cdefg)`         | Quintuplet                   | ❌  |
 | `(7cdefgab)`       | Septuplet                    | ❌  |
 | `(scdef)`          | Ranged sustain pedal         | ❌  |
@@ -53,15 +53,15 @@ sorrygle_compiler.exe filename.srg
 | `<~c>`             | Fermata                      | ❌  |
 | `<!c>`             | Sforzando                    | ⭕  |
 | `<tc>`             | Trill                        | ❌  |
-| `<+cegⓘ>`          | Crescendo                    | ❌  |
-| `<-gecⓘ>`          | Decrescendo                  | ❌  |
+| `<+cegⓘ>`          | Crescendo                    | ⭕  |
+| `<-gecⓘ>`          | Decrescendo                  | ⚠️  |
 | `<p(ⓝ)c~(ⓝ)~~(ⓝ)>` | Pitch bend                   | ❌  |
 | `\|:`              | Open repeat                  | ⭕  |
 | `:\|ⓘ`             | Close repeat                 | ⭕  |
 | `/1`               | Prima volta                  | ❌  |
 | `/2`               | Seconda volta                | ❌  |
 | `{ⓘceg}`           | Group declaration            | ⭕  |
-| `{=ⓘ}`             | Group reference              | ⭕  |
+| `{=ⓘ}`             | Group reference              | ⚠️  |
 | `=/`               | Head comment                 | ❌  |
 | `/=`               | Tail comment                 | ⭕  |
 
